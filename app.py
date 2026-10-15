@@ -38,6 +38,8 @@ if "interrupt_payload" not in st.session_state:
     st.session_state.interrupt_payload = None
 if "final" not in st.session_state:
     st.session_state.final = None
+if "sessions_widget" not in st.session_state:
+    st.session_state.sessions_widget = 0   # bump to clear the sidebar row selection
 
 
 # ─── Page setup ────────────────────────────────────────────────────────────
@@ -55,7 +57,9 @@ with st.sidebar:
                 SELECT thread_id,
                        pr_url,
                        MAX(timestamp)        AS last_event,
-                       MAX(risk_level)       AS worst_risk,
+                       -- rank, not MAX(text): 'med' > 'low' > 'high' alphabetically
+                       CASE MAX(CASE risk_level WHEN 'high' THEN 3 WHEN 'med' THEN 2 ELSE 1 END)
+                            WHEN 3 THEN 'high' WHEN 2 THEN 'med' ELSE 'low' END AS worst_risk,
                        COUNT(*)              AS events
                   FROM audit_events
                  GROUP BY thread_id, pr_url
@@ -65,6 +69,13 @@ with st.sidebar:
             ) as cur:
                 return [dict(r) for r in await cur.fetchall()]
 
+    async def _load_session(thread_id: str) -> tuple[dict | None, dict]:
+        """Read a thread's checkpoint: (pending interrupt payload or None, state values)."""
+        async with AsyncSqliteSaver.from_conn_string(db_path()) as cp:
+            snap = await build_graph(cp).aget_state({"configurable": {"thread_id": thread_id}})
+        payload = next((i.value for t in snap.tasks for i in t.interrupts), None)
+        return payload, snap.values
+
     sessions = asyncio.run(_recent_sessions())
     if not sessions:
         st.caption("No sessions yet.")
@@ -73,16 +84,21 @@ with st.sidebar:
             [{"thread_id": r["thread_id"][:8], "pr": r["pr_url"].split("github.com/")[-1],
               "worst_risk": r["worst_risk"], "last_event": r["last_event"][:19]} for r in sessions],
             hide_index=True, on_select="rerun", selection_mode="single-row",
+            key=f"sessions_{st.session_state.sessions_widget}",
         )
         rows = event.selection.rows
         if rows:
+            # Jump back to that session: restore its pending card or final result
+            # from the checkpointer, then drop the row selection (row indices shift
+            # as new sessions are added, so a stale selection would point elsewhere).
             picked = sessions[rows[0]]
-            if picked["thread_id"] != st.session_state.thread_id:
-                st.session_state.thread_id = picked["thread_id"]
-                st.session_state.pr_url = picked["pr_url"]
-                st.session_state.interrupt_payload = None
-                st.session_state.final = None
-                st.rerun()
+            payload, values = asyncio.run(_load_session(picked["thread_id"]))
+            st.session_state.thread_id = picked["thread_id"]
+            st.session_state.pr_url = picked["pr_url"]
+            st.session_state.interrupt_payload = payload
+            st.session_state.final = values if payload is None and values.get("final_action") else None
+            st.session_state.sessions_widget += 1
+            st.rerun()
         if st.session_state.thread_id:
             st.caption(f"Selected thread: `{st.session_state.thread_id}`")
             st.code(f"uv run python -m audit.replay --thread {st.session_state.thread_id}", language="bash")

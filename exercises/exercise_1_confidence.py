@@ -47,9 +47,15 @@ def node_analyze(state: ReviewState) -> dict:
                 "You are a senior code reviewer. Analyze the PR diff and produce a "
                 "structured review: a summary, risk factors, concrete review comments, "
                 "and an honest self-reported confidence (0.0–1.0) that your review is "
-                "complete and correct, with reasoning for that value. Lower your "
-                "confidence when the PR touches security, auth, migrations, or when "
-                "the author's intent is unclear."
+                "complete and correct, with reasoning for that value. Calibrate it with "
+                "this scale:\n"
+                "- 0.80–0.95: trivial/mechanical change (typo, dependency bump, tiny refactor).\n"
+                "- 0.60–0.72: small feature or schema change that looks fine but has an open "
+                "question (e.g. migration, edge case) a human should confirm.\n"
+                "- 0.30–0.55: the PR touches auth, passwords, tokens/secrets, network sync or "
+                "SQL built from user input, or has multiple serious issues (weak hashing, "
+                "plaintext secrets, injection, hard-coded identities, missing tests) whose "
+                "intent you cannot verify from the diff alone."
             )},
             {"role": "user", "content": f"PR title: {state['pr_title']}\n\nDiff:\n{state['pr_diff']}"},
         ])

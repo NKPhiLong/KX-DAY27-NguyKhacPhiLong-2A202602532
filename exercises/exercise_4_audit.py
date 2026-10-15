@@ -103,6 +103,11 @@ async def node_analyze(state):
         a: PRAnalysis = await llm.ainvoke([
             {"role": "system", "content": (
                 "Senior reviewer. Structured output. "
+                "Self-report confidence (0.0–1.0) that your review is complete and correct, "
+                "calibrated with this scale: 0.80–0.95 trivial/mechanical change; 0.60–0.72 small "
+                "feature or schema change with an open question a human should confirm; 0.30–0.55 "
+                "the PR touches auth, passwords, tokens/secrets, network sync or SQL built from user "
+                "input, or has multiple serious issues whose intent you cannot verify from the diff. "
                 f"If your confidence is below {ESCALATE_THRESHOLD:.0%}, populate escalation_questions "
                 "with 2–4 specific, context-rich questions for a human reviewer. Each question must "
                 "reference the exact file/function/section of the diff it is about and explain what "
